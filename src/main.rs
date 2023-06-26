@@ -7,16 +7,10 @@ use tantivy::Index;
 use tantivy::IndexWriter;
 use tantivy::ReloadPolicy;
 use tantivy::TantivyError;
+use tantivy::directory::MmapDirectory;
+use tantivy::directory::error::OpenReadError;
 
 use std::env;
-use std::path::PathBuf;
-use std::error::Error;
-use std::fs::File;
-use std::io;
-use std::fs;
-
-use csv::Reader;
-use tantivy::directory::Directory;
 
 
 /// Get the current directory.
@@ -198,25 +192,48 @@ fn index_data(file_path: &str, schema: &Schema, index_writer: &mut Result<IndexW
 }
 
 
+fn index_exists(index_path: &str) -> bool {
+    let index_directory = Index::open_in_dir(index_path).is_ok();
+    index_directory
+}
+
+fn count_documents_in_index(index_location: &str) -> u64 {
+    let directory = MmapDirectory::open(index_location).unwrap();
+    let index = Index::open(directory).unwrap();
+    
+    let reader = index.reader().unwrap();
+    let searcher = reader.searcher();
+    
+    searcher.num_docs()
+}
+
 fn main(){
     // Set the index directory in the project's root folder
     let current_path = get_current_dir();
     // Concatenar la carpeta "index"
     let index_path = format!("{}/index", current_path);
-
     println!("The current directory is: {:?}", index_path);
 
-    println!("Creating the schema for the index...");
-    let schema = create_schema();
+    let exists = index_exists(&index_path);
+    if exists {
+        println!("An index already exists at the location: {}", index_path);
+        
+        let document_count = count_documents_in_index(&index_path);
+        println!("Número de documentos en el índice: {}", document_count);
 
-    println!("Creating the index...");
-    let index = create_index(&index_path, schema.clone());
-    println!("Index created successfully!");
+    } else {
+        println!("Creating the schema for the index...");
+        let schema = create_schema();
 
-    let mut index_writer = index.writer(50_000_000);
-    let data_path = "data/Libro1.csv";
-    match index_data(data_path, &schema, &mut index_writer) {
-        Ok(()) => println!("CSV file indexed successfully!"),
-        Err(err) => eprintln!("Error indexing CSV file: {:?}", err),
+        println!("Creating the index...");
+        let index = create_index(&index_path, schema.clone());
+        println!("Index created successfully!");
+
+        let mut index_writer = index.writer(50_000_000);
+        let data_path = "data/Libro1.csv";
+        match index_data(data_path, &schema, &mut index_writer) {
+            Ok(()) => println!("CSV file indexed successfully!"),
+            Err(err) => eprintln!("Error indexing CSV file: {:?}", err),
+        }
     }
 }
