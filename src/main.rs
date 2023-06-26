@@ -32,7 +32,6 @@ fn create_schema() -> Schema {
     // First, we need to define a schema...
     let mut schema_builder = Schema::builder();
 
-
     // title;url;body;state
     // Our first field is the title of the web page.
     // We want full-text search for it, and we also want to be able to retrieve the document after the search.
