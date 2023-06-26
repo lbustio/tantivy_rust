@@ -11,6 +11,7 @@ use tantivy::directory::MmapDirectory;
 use tantivy::directory::error::OpenReadError;
 
 use std::env;
+use std::fs;
 
 
 /// Get the current directory.
@@ -207,6 +208,14 @@ fn count_documents_in_index(index_location: &str) -> u64 {
     searcher.num_docs()
 }
 
+fn get_index_size(index_location: &str) -> f64 {
+    let metadata = fs::metadata(index_location).unwrap();
+    let size = metadata.len();
+    let size_in_megabytes = (size as f64) / (1024.0 * 1024.0);
+
+    size_in_megabytes
+}
+
 fn main(){
     // Set the index directory in the project's root folder
     let current_path = get_current_dir();
@@ -220,6 +229,9 @@ fn main(){
         
         let document_count = count_documents_in_index(&index_path);
         println!("Número de documentos en el índice: {}", document_count);
+
+        let index_size = get_index_size(&index_path);
+        println!("Tamaño del índice: {} megabytes", index_size);
 
     } else {
         println!("Creating the schema for the index...");
