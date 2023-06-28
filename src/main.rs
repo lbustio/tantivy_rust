@@ -7,6 +7,7 @@ use tantivy::TantivyError;
 
 use std::env;
 use std::fs;
+use std::path::Path;
 use std::time::Instant;
 
 /// Get the current directory.
@@ -76,6 +77,14 @@ fn create_index(index_path: &str, schema: Schema) -> Index {
     index
 }
 
+fn find_files(location: &str, pattern: &str) -> Result<Vec<std::path::PathBuf>, Box<dyn std::error::Error>> {
+    let mut files = Vec::new();
+    for entry in glob::glob(&format!("{}/{}", location, pattern))? {
+        files.push(entry?);
+    }
+    Ok(files)
+}
+
 /// Indexes the contents of a CSV file into a Tantivy index.
 ///
 /// # Arguments
@@ -87,66 +96,135 @@ fn create_index(index_path: &str, schema: Schema) -> Index {
 /// # Errors
 ///
 /// Returns an error if there is any issue reading the CSV file or indexing the documents.
-fn index_data(file_path: &str, schema: &Schema, index_writer: &mut Result<IndexWriter, TantivyError>) -> Result<(), Box<dyn std::error::Error>> {
-    // Open the CSV file
+fn index_data(
+    files_path: &str,
+    schema: &Schema,
+    index_writer: &mut Result<IndexWriter, TantivyError>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Patron de archivos que se indexarán
+    let pattern = "*.csv";
+
+    // bulk size
     let bulk_size = 1000;
-    let file = std::fs::File::open(file_path)?;
-    let mut reader = csv::Reader::from_reader(file);
 
-    let mut counter: i32 = 0;
-    let start_index_time = Instant::now();
-    // Iterate over the rows of the CSV
-    for result in reader.records() {
-        let start_bulk_time = Instant::now();
-        let record = result?;
-        
-        // Create a new document
-        let mut doc = Document::default();
+    // Se obtienen los archivos que respondan al patrón en la ubicación
+    // indicada.
+    let files = find_files(files_path, pattern).unwrap();
+    for file_path in files {
+        println!("Indexing: {}", file_path.display());
 
-        // Add fields to the document
-        // Check for title
-        let mut  _title: String = String::new();
-        if schema.get_field("title").is_ok() {
-            _title = record.get(0).unwrap_or("NA").to_string();
-        }
-        else {
-            _title = "NA".to_string();
-        }
-        doc.add_text(schema.get_field("title").unwrap(),_title);
+        // Open the CSV file
+        let file = match std::fs::File::open(&file_path) {
+            Ok(file) => file,
+            Err(err) => {
+                println!("Error opening file: {:?}", err);
+                continue;
+            }
+        };
+        let mut reader = csv::Reader::from_reader(file);
 
-        // Check for url
-        let mut _url: String = String::new();
-        if schema.get_field("url").is_ok() {
-            _url = record.get(1).unwrap_or("NA").to_string();
-        }
-        else {
-            _url = "NA".to_string();
-        }
-        doc.add_text(schema.get_field("url").unwrap(),_url);
+        let mut counter: i32 = 0;
+        let mut exception_counter: i32 = 0;
 
-        // Check for body
-        let mut _body: String = String::new();
-        if schema.get_field("body").is_ok() {
-            _body = record.get(2).unwrap_or("NA").to_string();
-        }
-        else {
-            _body = "NA".to_string();
-        }
-        doc.add_text(schema.get_field("body").unwrap(), _body);
+        let start_index_time = Instant::now();
+        // Iterate over the rows of the CSV
+        for result in reader.records() {
+            let start_bulk_time = Instant::now();
+            let record = match result {
+                Ok(record) => record,
+                Err(err) => {
+                    println!("Error reading record: {:?}", err);
+                    exception_counter += 1;
+                    continue;
+                }
+            };
 
-        // Check for states
-        let mut _state: String = String::new();
-        if schema.get_field("state").is_ok() {
-            _state = record.get(3).unwrap_or("NA").to_string();
+            // Create a new document
+            let mut doc = Document::default();
+
+            // Add fields to the document
+            // Check for title
+            // Posicion de las columnas en los datos: 
+            // 0,  1  , 2 , 3  , 4,  5
+            //  ,title,URL,Body,id,states
+            let mut _title: String = String::new();
+            if schema.get_field("title").is_ok() {
+                _title = record.get(1).unwrap_or("NA").to_string();
+            } else {
+                _title = "NA".to_string();
+            }
+            doc.add_text(schema.get_field("title").unwrap(), _title);
+
+            // Check for url
+            let mut _url: String = String::new();
+            if schema.get_field("url").is_ok() {
+                _url = record.get(2).unwrap_or("NA").to_string();
+            } else {
+                _url = "NA".to_string();
+            }
+            doc.add_text(schema.get_field("url").unwrap(), _url);
+
+            // Check for body
+            let mut _body: String = String::new();
+            if schema.get_field("body").is_ok() {
+                _body = record.get(3).unwrap_or("NA").to_string();
+            } else {
+                _body = "NA".to_string();
+            }
+            doc.add_text(schema.get_field("body").unwrap(), _body);
+
+            // Check for states
+            let mut _state: String = String::new();
+            if schema.get_field("state").is_ok() {
+                _state = record.get(5).unwrap_or("NA").to_string();
+            } else {
+                _state = "NA".to_string();
+            }
+            doc.add_text(schema.get_field("state").unwrap(), _state);
+
+            // Add the document to the index writer
+            if let Ok(ref mut writer) = *index_writer {
+                writer.add_document(doc)?;
+            } else {
+                // Manejar el error en caso de que sea un Err
+                if let Err(err) = index_writer {
+                    // Manejar el error
+                    println!("Error: {:?}", err);
+                }
+            }
+
+            counter += 1;
+
+            // Commit the changes every 1000 documents
+            if counter % bulk_size == 0 {
+                let elapsed_bulk_time = start_bulk_time.elapsed();
+                println!("Indexing document {:?}", counter);
+                println!(
+                    "Indizar un bulk de {} datos tomó: {:?} en ejecutarse",
+                    bulk_size, elapsed_bulk_time
+                );
+                // Extraer el valor del IndexWriter
+                if let Ok(ref mut writer) = *index_writer {
+                    if let Err(err) = writer.commit() {
+                        println!("Error committing changes: {:?}", err);
+                        exception_counter += 1;
+                        continue;
+                    }
+                } else {
+                    // Manejar el error en caso de que sea un Err
+                    if let Err(err) = index_writer {
+                        // Manejar el error
+                        println!("Error: {:?}", err);
+                    }
+                }
+            }
         }
-        else {
-            let _state = "NA".to_string();
-        }
-        doc.add_text(schema.get_field("state").unwrap(), _state);
-        
-        // Add the document to the index writer
+
+        // Commit any remaining changes
+        // Extraer el valor del IndexWriter
         if let Ok(ref mut writer) = *index_writer {
-            writer.add_document(doc)?;
+            // Aquí puedes usar el index_writer
+            writer.commit()?;
         } else {
             // Manejar el error en caso de que sea un Err
             if let Err(err) = index_writer {
@@ -154,41 +232,14 @@ fn index_data(file_path: &str, schema: &Schema, index_writer: &mut Result<IndexW
                 println!("Error: {:?}", err);
             }
         }
-
-        counter += 1;
-
-        // Commit the changes every 1000 documents
-        if counter % bulk_size == 0 {
-            let elapsed_bulk_time = start_bulk_time.elapsed();
-            println!("Indexing document {:?}", counter);
-            println!("Indizar un bulk de {} datos tomó: {:?} en ejecutarse", bulk_size, elapsed_bulk_time);
-            // Extraer el valor del IndexWriter
-            if let Ok(ref mut writer) = *index_writer {
-                writer.commit()?;
-            } else {
-            // Manejar el error en caso de que sea un Err
-                if let Err(err) = index_writer {
-                    // Manejar el error
-                    println!("Error: {:?}", err);
-                }
-            }
-        }
+        let elapsed_index_time = start_index_time.elapsed();
+        let exception_percentage = (exception_counter as f32 / counter as f32) * 100.0;
+        println!(
+            "Indizar {} datos tomó: {:?} en ejecutarse",
+            counter, elapsed_index_time
+        );
+        println!("Excepciones: {} ({}%)", exception_counter, exception_percentage);
     }
-
-    // Commit any remaining changes
-    // Extraer el valor del IndexWriter
-    if let Ok(ref mut writer) = *index_writer {
-        // Aquí puedes usar el index_writer
-         writer.commit()?;
-    } else {
-        // Manejar el error en caso de que sea un Err
-        if let Err(err) = index_writer {
-            // Manejar el error
-            println!("Error: {:?}", err);
-        }
-    } 
-    let elapsed_index_time = start_index_time.elapsed();
-    println!("Indizar {} datos tomó: {:?} en ejecutarse", counter, elapsed_index_time);    
 
     Ok(())
 }
@@ -241,12 +292,19 @@ fn main() {
         println!("Index created successfully!");
 
         let mut index_writer = index.writer(50_000_000);
-        let data_path = "data/Libro1.csv";
+        let data_path = "/home/ubuntu/work/lucene_tantivy_data";
         
+        println!("Start indexing files in {}", data_path);
+        let start_index_time = Instant::now();
         match index_data(data_path, &schema, &mut index_writer) {
             Ok(()) => println!("CSV file indexed successfully!"),
             Err(err) => eprintln!("Error indexing CSV file: {:?}", err),
         }
+        let elapsed_index_time = start_index_time.elapsed();
+        println!(
+            "Indizar todos los WET tomó: {:?} en ejecutarse",
+            elapsed_index_time
+        );
 
         let document_count = count_documents_in_index(&index_path);
         println!("Número de documentos en el índice: {}", document_count);

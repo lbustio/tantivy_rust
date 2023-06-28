@@ -72,6 +72,7 @@ fn query_index(index: &Index, query: &str, limit: usize) -> tantivy::Result<Vec<
 
     // Crea un QueryParser con el esquema, el TokenizerManager y los campos definidos
     let query_parser = QueryParser::new(schema.clone(), vec![title_field, body_field, state_field], tokenizer_manager);
+    l//et query_parser = QueryParser::new(schema.clone(), vec![state_field], tokenizer_manager);
 
     // Parsea la consulta
     let query = query_parser.parse_query(query)?;
@@ -135,8 +136,8 @@ fn main() {
             // Do something with the read index
             println!("Index read");
             
-            let query = "I";
-            let search_limit: usize = 10000;
+            let query = "CA";
+            let search_limit: usize = 3;
 
             let start_time = Instant::now();
             let retrieved_docs_result = query_index(&index, query, search_limit);
@@ -148,7 +149,7 @@ fn main() {
                 let num_docs = retrieved_docs.len();
                 println!("Cantidad de documentos encontrados: {}", num_docs);
 
-                //print_results(retrieved_docs_result, &index);
+                print_results(retrieved_docs_result, &index);
             } else {
                 // Manejo del error en caso de que la consulta falle
                 println!("Error en la consulta: {:?}", retrieved_docs_result.err());
