@@ -1,13 +1,8 @@
-#[macro_use]
 extern crate tantivy;
-use tantivy::collector::TopDocs;
-use tantivy::directory::error::OpenReadError;
 use tantivy::directory::MmapDirectory;
-use tantivy::query::QueryParser;
 use tantivy::schema::*;
 use tantivy::Index;
 use tantivy::IndexWriter;
-use tantivy::ReloadPolicy;
 use tantivy::TantivyError;
 
 use std::env;
