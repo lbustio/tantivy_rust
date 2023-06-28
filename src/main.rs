@@ -7,6 +7,7 @@ use tantivy::TantivyError;
 
 use std::env;
 use std::fs;
+use std::time::Instant;
 
 /// Get the current directory.
 ///
@@ -88,13 +89,15 @@ fn create_index(index_path: &str, schema: Schema) -> Index {
 /// Returns an error if there is any issue reading the CSV file or indexing the documents.
 fn index_data(file_path: &str, schema: &Schema, index_writer: &mut Result<IndexWriter, TantivyError>) -> Result<(), Box<dyn std::error::Error>> {
     // Open the CSV file
+    let bulk_size = 1000;
     let file = std::fs::File::open(file_path)?;
     let mut reader = csv::Reader::from_reader(file);
 
-    let mut counter = 0;
-
+    let mut counter: i32 = 0;
+    let start_index_time = Instant::now();
     // Iterate over the rows of the CSV
     for result in reader.records() {
+        let start_bulk_time = Instant::now();
         let record = result?;
         
         // Create a new document
@@ -155,8 +158,10 @@ fn index_data(file_path: &str, schema: &Schema, index_writer: &mut Result<IndexW
         counter += 1;
 
         // Commit the changes every 1000 documents
-        if counter % 1000 == 0 {
+        if counter % bulk_size == 0 {
+            let elapsed_bulk_time = start_bulk_time.elapsed();
             println!("Indexing document {:?}", counter);
+            println!("Indizar un bulk de {} datos tomó: {:?} en ejecutarse", bulk_size, elapsed_bulk_time);
             // Extraer el valor del IndexWriter
             if let Ok(ref mut writer) = *index_writer {
                 writer.commit()?;
@@ -181,7 +186,9 @@ fn index_data(file_path: &str, schema: &Schema, index_writer: &mut Result<IndexW
             // Manejar el error
             println!("Error: {:?}", err);
         }
-    }     
+    } 
+    let elapsed_index_time = start_index_time.elapsed();
+    println!("Indizar {} datos tomó: {:?} en ejecutarse", counter, elapsed_index_time);    
 
     Ok(())
 }
@@ -235,6 +242,7 @@ fn main() {
 
         let mut index_writer = index.writer(50_000_000);
         let data_path = "data/Libro1.csv";
+        
         match index_data(data_path, &schema, &mut index_writer) {
             Ok(()) => println!("CSV file indexed successfully!"),
             Err(err) => eprintln!("Error indexing CSV file: {:?}", err),

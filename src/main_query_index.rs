@@ -1,5 +1,5 @@
-#[macro_use]
 extern crate tantivy;
+use tantivy::Document;
 use tantivy::Index;
 use tantivy::collector::TopDocs;
 use tantivy::directory::MmapDirectory;
@@ -10,9 +10,9 @@ use tantivy::schema::Field;
 use tantivy::schema::Schema;
 use tantivy::tokenizer::TokenizerManager;
 
-
 use std::env;
 use std::fs;
+use std::time::Instant;
 
 /// Get the current directory as a String.
 fn get_current_dir() -> String {
@@ -53,8 +53,8 @@ fn read_index(index_path: &str) -> Result<Index> {
 }
 
 /// Perform a query on the given Index and print the results.
-fn query_index(index: &Index) -> Result<()> {
-    println!("Querying the index.....");
+fn query_index(index: &Index, query: &str, limit: usize) -> tantivy::Result<Vec<Document>> {
+    println!("Querying the index searching for '{:?}'", query);
 
     let reader = index
         .reader_builder()
@@ -71,29 +71,46 @@ fn query_index(index: &Index) -> Result<()> {
     let tokenizer_manager = TokenizerManager::default();
 
     // Crea un QueryParser con el esquema, el TokenizerManager y los campos definidos
-    let query_parser = QueryParser::new(schema.clone(),  vec![title_field, body_field, state_field], tokenizer_manager);
+    let query_parser = QueryParser::new(schema.clone(), vec![title_field, body_field, state_field], tokenizer_manager);
 
-    // Parsea la consulta para buscar la cadena "pepe"
-    let query = query_parser.parse_query("i")?;
+    // Parsea la consulta
+    let query = query_parser.parse_query(query)?;
 
     // Realiza la búsqueda y obtiene los documentos más relevantes
-    let reader = index.reader()?;
-    let searcher = reader.searcher();
-    let top_docs = searcher.search(&query, &TopDocs::with_limit(10))?;
+    let top_docs: Vec<(f32, tantivy::DocAddress)> = searcher.search(&query, &TopDocs::with_limit(limit))?;
 
-     // Imprime la cantidad de documentos en top_docs
-     println!("Cantidad de documentos encontrados: {}", top_docs.len());
+    let mut retrieved_docs: Vec<Document> = Vec::new();
 
-    // Imprime los documentos encontrados
+    // Recorre los documentos encontrados
     for (_score, doc_address) in top_docs {
         let retrieved_doc = searcher.doc(doc_address)?;
-        println!("{}", schema.to_json(&retrieved_doc));
+        retrieved_docs.push(retrieved_doc);
     }
 
-    Ok(())
-
-    
+    Ok(retrieved_docs)
 }
+
+
+fn print_results(retrieved_docs_result: tantivy::Result<Vec<tantivy::Document>>, index: &tantivy::Index) {
+    // Verifica si la consulta tuvo éxito
+    if let Ok(retrieved_docs) = retrieved_docs_result {
+        // Obtén el esquema del índice
+        let schema = index.schema();
+
+        // Recorre los documentos encontrados
+        let mut counter = 0;
+        for retrieved_doc in retrieved_docs {
+            // Trabaja con cada documento según sea necesario
+            println!("Result: {:?} - {}", counter, schema.to_json(&retrieved_doc));
+            counter += 1;
+            println!("-----------------------------------------------------------------");
+        }
+    } else {
+        // Manejo del error en caso de que la consulta falle
+        println!("Error en la consulta: {:?}", retrieved_docs_result.err());
+    }
+}
+
 
 fn main() {
     // Set the index directory in the project's root folder
@@ -116,11 +133,25 @@ fn main() {
 
         if let Ok(index) = read_index(&index_path) {
             // Do something with the read index
-            println!("Index read: {:?}", index);
+            println!("Index read");
             
-            if let Err(err) = query_index(&index) {
-                // Handle the error if it occurred
-                println!("Error querying the index: {:?}", err);
+            let query = "I";
+            let search_limit: usize = 10000;
+
+            let start_time = Instant::now();
+            let retrieved_docs_result = query_index(&index, query, search_limit);
+            let elapsed_time = start_time.elapsed();
+            println!("La consulta tomó: {:?} en ejecutarse", elapsed_time);
+
+            if let Ok(retrieved_docs) = retrieved_docs_result.clone() {
+                // Imprime la cantidad de documentos encontrados
+                let num_docs = retrieved_docs.len();
+                println!("Cantidad de documentos encontrados: {}", num_docs);
+
+                //print_results(retrieved_docs_result, &index);
+            } else {
+                // Manejo del error en caso de que la consulta falle
+                println!("Error en la consulta: {:?}", retrieved_docs_result.err());
             }
         } else {
             // Handle the error if it occurred while reading the index
