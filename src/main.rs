@@ -247,5 +247,11 @@ fn main() {
             Ok(()) => println!("CSV file indexed successfully!"),
             Err(err) => eprintln!("Error indexing CSV file: {:?}", err),
         }
+
+        let document_count = count_documents_in_index(&index_path);
+        println!("Número de documentos en el índice: {}", document_count);
+
+        let index_size = get_index_size(&index_path);
+        println!("Tamaño del índice: {} megabytes", index_size);
     }
 }
