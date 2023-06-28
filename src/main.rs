@@ -1,18 +1,17 @@
 #[macro_use]
 extern crate tantivy;
 use tantivy::collector::TopDocs;
+use tantivy::directory::error::OpenReadError;
+use tantivy::directory::MmapDirectory;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
 use tantivy::Index;
 use tantivy::IndexWriter;
 use tantivy::ReloadPolicy;
 use tantivy::TantivyError;
-use tantivy::directory::MmapDirectory;
-use tantivy::directory::error::OpenReadError;
 
 use std::env;
 use std::fs;
-
 
 /// Get the current directory.
 ///
@@ -48,7 +47,7 @@ fn create_schema() -> Schema {
     // Our third field is the body of the web page.
     // We want full-text search for it, but we do not need to be able to retrieve it for our application.
     // We can make our index lighter by omitting the STORED flag.
-    schema_builder.add_text_field("body", TEXT);
+    schema_builder.add_text_field("body", TEXT | STORED);
 
     // The fourth field is the state (if it exists) where the company that owns the URL is located.
     // This field is searchable.
@@ -61,21 +60,21 @@ fn create_schema() -> Schema {
 }
 
 /// Creates a new index with the provided schema.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `index_path` - The path where the index will be created.
 /// * `schema` - The schema to be used for the index.
-/// 
+///
 /// # Returns
-/// 
+///
 /// Returns the created index if successful, or an error if the index creation fails.
 fn create_index(index_path: &str, schema: Schema) -> Index {
     // INDEXING DOCUMENTS
     // Let's create a brand new index.
     // This will actually just save a meta.json with our schema in the directory.
     // Crear el nuevo índice
-  
+
     let index = Index::create_in_dir(index_path, schema.clone()).expect("Failed to create index");
 
     index
@@ -102,51 +101,51 @@ fn index_data(file_path: &str, schema: &Schema, index_writer: &mut Result<IndexW
     // Iterate over the rows of the CSV
     for result in reader.records() {
         let record = result?;
-
+        
         // Create a new document
         let mut doc = Document::default();
 
         // Add fields to the document
         // Check for title
-        let _title: String = String::new();
+        let mut  _title: String = String::new();
         if schema.get_field("title").is_ok() {
-            let _title = "NA";
+            _title = record.get(0).unwrap_or("NA").to_string();
         }
         else {
-            let _title = schema.get_field("title").unwrap();
+            _title = "NA".to_string();
         }
         doc.add_text(schema.get_field("title").unwrap(),_title);
 
         // Check for url
-        let _url: String = String::new();
+        let mut _url: String = String::new();
         if schema.get_field("url").is_ok() {
-            let _url = "NA";
+            _url = record.get(1).unwrap_or("NA").to_string();
         }
         else {
-            let _url = schema.get_field("url").unwrap();
+            _url = "NA".to_string();
         }
         doc.add_text(schema.get_field("url").unwrap(),_url);
 
         // Check for body
-        let _body: String = String::new();
+        let mut _body: String = String::new();
         if schema.get_field("body").is_ok() {
-            let _body = "NA";
+            _body = record.get(2).unwrap_or("NA").to_string();
         }
         else {
-            let _body = schema.get_field("body").unwrap();
+            _body = "NA".to_string();
         }
         doc.add_text(schema.get_field("body").unwrap(), _body);
 
         // Check for states
-        let _state: String = String::new();
+        let mut _state: String = String::new();
         if schema.get_field("state").is_ok() {
-            let _state = "NA";
+            _state = record.get(3).unwrap_or("NA").to_string();
         }
         else {
-            let _state = schema.get_field("state").unwrap();
+            let _state = "NA".to_string();
         }
         doc.add_text(schema.get_field("state").unwrap(), _state);
-
+        
         // Add the document to the index writer
         if let Ok(ref mut writer) = *index_writer {
             writer.add_document(doc)?;
@@ -162,6 +161,7 @@ fn index_data(file_path: &str, schema: &Schema, index_writer: &mut Result<IndexW
 
         // Commit the changes every 1000 documents
         if counter % 1000 == 0 {
+            println!("Indexing document {:?}", counter);
             // Extraer el valor del IndexWriter
             if let Ok(ref mut writer) = *index_writer {
                 writer.commit()?;
@@ -179,18 +179,17 @@ fn index_data(file_path: &str, schema: &Schema, index_writer: &mut Result<IndexW
     // Extraer el valor del IndexWriter
     if let Ok(ref mut writer) = *index_writer {
         // Aquí puedes usar el index_writer
-        writer.commit()?;
+         writer.commit()?;
     } else {
-    // Manejar el error en caso de que sea un Err
+        // Manejar el error en caso de que sea un Err
         if let Err(err) = index_writer {
             // Manejar el error
             println!("Error: {:?}", err);
         }
-    }
+    }     
 
     Ok(())
 }
-
 
 fn index_exists(index_path: &str) -> bool {
     let index_directory = Index::open_in_dir(index_path).is_ok();
@@ -200,10 +199,10 @@ fn index_exists(index_path: &str) -> bool {
 fn count_documents_in_index(index_location: &str) -> u64 {
     let directory = MmapDirectory::open(index_location).unwrap();
     let index = Index::open(directory).unwrap();
-    
+
     let reader = index.reader().unwrap();
     let searcher = reader.searcher();
-    
+
     searcher.num_docs()
 }
 
@@ -215,7 +214,7 @@ fn get_index_size(index_location: &str) -> f64 {
     size_in_megabytes
 }
 
-fn main(){
+fn main() {
     // Set the index directory in the project's root folder
     let current_path = get_current_dir();
     // Concatenar la carpeta "index"
@@ -225,13 +224,12 @@ fn main(){
     let exists = index_exists(&index_path);
     if exists {
         println!("An index already exists at the location: {}", index_path);
-        
+
         let document_count = count_documents_in_index(&index_path);
         println!("Número de documentos en el índice: {}", document_count);
 
         let index_size = get_index_size(&index_path);
         println!("Tamaño del índice: {} megabytes", index_size);
-
     } else {
         println!("Creating the schema for the index...");
         let schema = create_schema();
